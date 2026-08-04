@@ -156,6 +156,8 @@ class LogReader:
         )
         for raw_line in self._read_lines():
             line = _sanitize(raw_line, redact_ips=self._config.redact_ip_addresses)
+            if CHAT_PATTERN.search(line):
+                continue
             folded = line.casefold()
             category = next(
                 (

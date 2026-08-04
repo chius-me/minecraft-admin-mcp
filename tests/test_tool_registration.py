@@ -35,3 +35,19 @@ async def test_v02_tools_are_registered_without_path_parameters(app_config: AppC
     assert "path" not in tools["get_recent_events"].parameters["properties"]
     assert "path" not in tools["get_recent_errors"].parameters["properties"]
     assert "path" not in tools["create_backup"].parameters["properties"]
+
+
+async def test_disabled_backup_tools_do_not_require_backup_storage(
+    app_config: AppConfig,
+) -> None:
+    app_config.permissions["create_backup"] = PermissionState.DISABLED
+    app_config.permissions["list_backups"] = PermissionState.DISABLED
+    unavailable_directory = app_config.backup.directory / "missing" / "backups"
+    app_config.backup.directory = unavailable_directory
+
+    server = create_mcp_server(app_config)
+
+    names = {tool.name for tool in await server.list_tools()}
+    assert "create_backup" not in names
+    assert "list_backups" not in names
+    assert not unavailable_directory.exists()

@@ -1,6 +1,6 @@
 [project]
 name = "minecraft-admin-mcp"
-version = "0.2.0"
+version = "0.2.1"
 description = "A least-privilege MCP server for administering one Minecraft Java server"
 readme = "README.md"
 requires-python = ">=3.12"

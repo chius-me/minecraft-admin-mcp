@@ -35,7 +35,31 @@ class BackupManager:
         self._minecraft = minecraft
         self._rcon = rcon
         self._locks = locks
-        self._config.directory.mkdir(parents=True, exist_ok=True)
+
+    def _prepare_backup_directory(self) -> None:
+        try:
+            self._config.directory.mkdir(parents=True, exist_ok=True)
+            for partial_path in self._config.directory.glob(".backup-*.partial"):
+                partial_path.unlink(missing_ok=True)
+            for archive_path in self._config.directory.glob("backup-*.tar.zst"):
+                if not Path(f"{archive_path}.json").is_file():
+                    archive_path.unlink(missing_ok=True)
+            for metadata_path in self._config.directory.glob("backup-*.tar.zst.json"):
+                archive_path = Path(str(metadata_path).removesuffix(".json"))
+                if not archive_path.is_file():
+                    metadata_path.unlink(missing_ok=True)
+        except OSError:
+            raise MinecraftAdminError(
+                ErrorCode.BACKUP_FAILED, "failed to prepare backup directory"
+            ) from None
+
+    @staticmethod
+    def _discard_incomplete(*paths: Path) -> None:
+        for path in paths:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def _check_deadline(self, deadline: float) -> None:
         if time.monotonic() > deadline:
@@ -110,6 +134,7 @@ class BackupManager:
         metadata_partial_path = self._config.directory / f".{archive_path.name}.json.partial"
         saving_disabled = False
         try:
+            self._prepare_backup_directory()
             if not self._rcon.save_off().success:
                 raise MinecraftAdminError(ErrorCode.BACKUP_FAILED, "Minecraft rejected save-off")
             saving_disabled = True
@@ -139,16 +164,14 @@ class BackupManager:
             self._enforce_retention()
             return info
         except MinecraftAdminError:
-            partial_path.unlink(missing_ok=True)
-            metadata_partial_path.unlink(missing_ok=True)
+            self._discard_incomplete(partial_path, metadata_partial_path)
             if not metadata_path.exists():
-                archive_path.unlink(missing_ok=True)
+                self._discard_incomplete(archive_path)
             raise
         except Exception:
-            partial_path.unlink(missing_ok=True)
-            metadata_partial_path.unlink(missing_ok=True)
+            self._discard_incomplete(partial_path, metadata_partial_path)
             if not metadata_path.exists():
-                archive_path.unlink(missing_ok=True)
+                self._discard_incomplete(archive_path)
             raise MinecraftAdminError(ErrorCode.BACKUP_FAILED, "backup failed") from None
         finally:
             self._locks.backup_lock.release()
