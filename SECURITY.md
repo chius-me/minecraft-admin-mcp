@@ -18,3 +18,6 @@ pin container versions, protect writable volumes, and review the SQLite audit lo
 Minecraft plugin may still compromise that Minecraft server; deploy each stack with separate
 networks, credentials, and volumes to contain that risk.
 
+Log and world inputs remain untrusted even though they are read from fixed configured paths. Keep the
+Minecraft mount read-only, keep each backup volume instance-local, and perform restores outside MCP
+through a trusted, integrity-checked recovery procedure.

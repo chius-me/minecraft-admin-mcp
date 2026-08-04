@@ -127,3 +127,11 @@ class RconAdapter:
     def save_all_flush(self) -> ActionResult:
         response = self._execute("save-all", "flush")
         return self._action_result(response, "world saved")
+
+    def save_off(self) -> ActionResult:
+        response = self._execute("save-off")
+        return self._action_result(response, "automatic saving disabled")
+
+    def save_on(self) -> ActionResult:
+        response = self._execute("save-on")
+        return self._action_result(response, "automatic saving enabled")

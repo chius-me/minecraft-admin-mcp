@@ -42,6 +42,7 @@ services:
     volumes:
       - ${MC_ADMIN_CONFIG_FILE:-./config/survival.example.yaml}:/app/config/config.yaml:ro
       - minecraft_data:/minecraft:ro
+      - minecraft_backups:/backups
       - minecraft_mcp_data:/var/lib/minecraft-admin-mcp
     ports:
       - "${MC_MCP_PORT:-8101}:8101"
@@ -67,4 +68,5 @@ networks:
 
 volumes:
   minecraft_data:
+  minecraft_backups:
   minecraft_mcp_data:

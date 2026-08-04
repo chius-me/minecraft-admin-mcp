@@ -14,4 +14,5 @@ def test_compose_enforces_container_boundaries() -> None:
     assert "no-new-privileges:true" in mcp["security_opt"]
     assert all("docker.sock" not in str(volume) for volume in mcp["volumes"])
     assert any(str(volume).endswith(":/minecraft:ro") for volume in mcp["volumes"])
+    assert any(str(volume).endswith(":/backups") for volume in mcp["volumes"])
     assert mcp["networks"] == minecraft["networks"] == ["minecraft_internal"]

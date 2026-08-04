@@ -1,6 +1,6 @@
 [project]
 name = "minecraft-admin-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "A least-privilege MCP server for administering one Minecraft Java server"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -12,6 +12,7 @@ dependencies = [
   "pyyaml>=6.0,<7",
   "rcon>=2.4,<3",
   "psutil>=6.1,<8",
+  "zstandard>=0.23,<1",
 ]
 
 [project.scripts]
@@ -46,4 +47,3 @@ packages = ["minecraft_admin_mcp"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-

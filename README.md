@@ -4,7 +4,7 @@
 small set of administration tools for exactly one Minecraft Java Edition server. It uses standard
 Streamable HTTP and has no dependency on a particular agent or client.
 
-The current release implements the V0.1 scope from `PROJECT_SPEC.md`.
+The current development branch implements the V0.2 scope from `PROJECT_SPEC.md`.
 
 ## Security model
 
@@ -18,8 +18,9 @@ This service is intentionally not a general remote administration interface:
 - Every write operation, including rejected attempts, is recorded in the instance-local SQLite
   audit database. Known secret fields are redacted.
 - Each instance has its own bearer token and RCON password, read only from environment variables.
-- The default container runs as UID 10001 with a read-only root filesystem, all Linux capabilities
-  dropped, and no Docker socket. Minecraft data is mounted read-only.
+- The default container runs as non-root UID 1000 with a read-only root filesystem, all Linux
+  capabilities dropped, and no Docker socket. UID 1000 matches the default owner used by the
+  recommended Minecraft image so private world files remain readable through the read-only mount.
 
 Player names, chat, server output, books, signs, and mod text remain untrusted input. Bearer tokens
 protect access but do not encrypt traffic; use HTTPS at a reverse proxy, Tailscale, or another
@@ -38,9 +39,14 @@ trusted private network in production.
 | `whitelist_remove` | Remove a validated player name | allow |
 | `kick_player` | Kick a player with a validated reason | allow |
 | `save_world` | Run the fixed `save-all flush` operation | allow |
+| `get_metrics` | Return reliable visible metrics and null for unavailable values | allow |
+| `get_recent_events` | Parse recent events from the configured fixed log | allow |
+| `get_recent_errors` | Parse recent failures from the configured fixed log | allow |
+| `create_backup` | Create a consistent Zstandard world backup | allow |
+| `list_backups` | List backup ID, time, size, SHA-256, and reason | allow |
 
-There is deliberately no raw command tool. Backup, restart, ban, restore, OP, logs, and metrics are
-outside V0.1.
+There is deliberately no raw command tool. Restart, ban, restore, OP, and arbitrary file access
+remain outside V0.2.
 
 ## Docker Compose deployment
 
@@ -61,6 +67,7 @@ RCON port has no host mapping; the MCP container reaches it as `minecraft:25575`
 The default stack mounts:
 
 - `minecraft_data` at `/data` in Minecraft and read-only at `/minecraft` in MCP;
+- `minecraft_backups` at writable `/backups` only in MCP;
 - `minecraft_mcp_data` at `/var/lib/minecraft-admin-mcp` for the SQLite audit database;
 - `config/survival.example.yaml` read-only as the MCP configuration.
 
@@ -110,6 +117,22 @@ Authorization: Bearer <instance-specific-token>
 ```
 
 Tokens in URL query parameters are not supported.
+
+### Logs, metrics, and backups
+
+The log tools only read `minecraft.log_file`; callers cannot provide a path. Recognized player chat
+is returned with `trusted: false` and `source: player_chat`. All log-derived content is untrusted,
+control characters are sanitized, and IP addresses are redacted by default.
+
+The standard Compose deployment does not share the Minecraft PID namespace with MCP. CPU and memory
+therefore return `null` instead of reporting the wrong process. Data-volume free space is reported;
+TPS and MSPT remain `null` in V0.2.
+
+Backups cover only configured `minecraft.world_directories`. Creation acquires an instance-wide
+lock, disables saving, flushes the worlds, writes a `.tar.zst` archive, calculates SHA-256, writes
+metadata, restores saving in a `finally` path, and enforces `retention_count`. Tool results never
+expose a filesystem path. V0.2 intentionally provides no restore operation; copy and verify backups
+through a trusted operator-controlled recovery process.
 
 ## MCP clients
 

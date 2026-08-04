@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from minecraft_admin_mcp.config import PermissionState, load_config
+from minecraft_admin_mcp.config import AppConfig, MinecraftConfig, PermissionState, load_config
 from minecraft_admin_mcp.errors import ErrorCode, MinecraftAdminError
 
 
@@ -53,3 +53,29 @@ def test_rejects_unknown_permission(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     monkeypatch.setenv("TEST_MCP_SECRET", "m" * 32)
     with pytest.raises(MinecraftAdminError, match="unsupported permissions"):
         load_config(path)
+
+
+def test_rejects_minecraft_path_outside_data_directory(app_config: AppConfig) -> None:
+    with pytest.raises(ValueError, match="inside data_directory"):
+        MinecraftConfig.model_validate(
+            {
+                **app_config.minecraft.model_dump(),
+                "log_file": "/etc/passwd",
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        Path("config/config.example.yaml"),
+        Path("config/survival.example.yaml"),
+        Path("config/test.example.yaml"),
+    ],
+)
+def test_repository_examples_are_valid(path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MC_RCON_PASSWORD", "example-rcon-secret")
+    monkeypatch.setenv("MC_MCP_TOKEN", "example-token-at-least-32-characters")
+    config = load_config(path)
+    assert config.backup.compression == "zstd"
+    assert config.permissions["create_backup"] is PermissionState.ALLOW

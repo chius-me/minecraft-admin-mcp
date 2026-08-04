@@ -32,3 +32,38 @@ class ServerStatus(BaseModel):
 class ActionResult(BaseModel):
     success: bool = True
     message: str
+
+
+class ServerMetrics(BaseModel):
+    cpu_percent: float | None = None
+    memory_used_bytes: int | None = None
+    memory_limit_bytes: int | None = None
+    data_volume_free_bytes: int | None = None
+    tps: float | None = None
+    mspt: float | None = None
+    checked_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class LogEvent(BaseModel):
+    event_type: str
+    timestamp: str | None = None
+    player: str | None = None
+    message: str
+    trusted: bool = False
+    source: str
+
+
+class LogError(BaseModel):
+    timestamp: str | None = None
+    category: str
+    message: str
+    trusted: bool = False
+    source: str = "server_log"
+
+
+class BackupInfo(BaseModel):
+    backup_id: str
+    created_at: datetime
+    size_bytes: int = Field(ge=0)
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    reason: str

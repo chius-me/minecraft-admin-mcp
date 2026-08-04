@@ -1,16 +1,36 @@
 import time
 from collections.abc import Callable, Mapping
-from typing import TypeVar
+from typing import Annotated, TypeVar
 
+from pydantic import Field
+
+from .adapters.backup import BackupManager
+from .adapters.log_reader import LogReader
+from .adapters.process_metrics import ProcessMetricsAdapter
 from .adapters.rcon import RconAdapter
 from .audit import AuditLog
 from .config import AppConfig
 from .errors import ErrorCode, MinecraftAdminError
-from .models import ActionResult, Identity, PlayerList, ServerStatus
+from .models import (
+    ActionResult,
+    BackupInfo,
+    Identity,
+    LogError,
+    LogEvent,
+    PlayerList,
+    ServerMetrics,
+    ServerStatus,
+)
 from .rate_limit import RateLimiter
-from .validation import validate_broadcast, validate_kick_reason, validate_player_name
+from .validation import (
+    validate_backup_reason,
+    validate_broadcast,
+    validate_kick_reason,
+    validate_player_name,
+)
 
 T = TypeVar("T")
+LogLimit = Annotated[int, Field(ge=1, le=200)]
 
 
 class AdminService:
@@ -18,11 +38,17 @@ class AdminService:
         self,
         config: AppConfig,
         rcon: RconAdapter,
+        log_reader: LogReader,
+        metrics: ProcessMetricsAdapter,
+        backups: BackupManager,
         audit: AuditLog,
         rate_limiter: RateLimiter,
     ) -> None:
         self.config = config
         self.rcon = rcon
+        self.log_reader = log_reader
+        self.metrics = metrics
+        self.backups = backups
         self.audit = audit
         self.rate_limiter = rate_limiter
 
@@ -49,6 +75,28 @@ class AdminService:
     def get_whitelist(self) -> list[str]:
         """List players on this Minecraft server's whitelist."""
         return self.rcon.get_whitelist()
+
+    def get_metrics(self) -> ServerMetrics:
+        """Return reliable server-visible metrics; unavailable values are null."""
+        return self.metrics.get_metrics()
+
+    @staticmethod
+    def _validate_log_limit(limit: int) -> int:
+        if not 1 <= limit <= 200:
+            raise MinecraftAdminError(ErrorCode.MESSAGE_INVALID, "limit must be between 1 and 200")
+        return limit
+
+    def get_recent_events(self, limit: LogLimit = 50) -> list[LogEvent]:
+        """Return recent recognized events from the one configured Minecraft log."""
+        return self.log_reader.get_recent_events(self._validate_log_limit(limit))
+
+    def get_recent_errors(self, limit: LogLimit = 50) -> list[LogError]:
+        """Return recent errors from the one configured Minecraft log."""
+        return self.log_reader.get_recent_errors(self._validate_log_limit(limit))
+
+    def list_backups(self) -> list[BackupInfo]:
+        """List instance-local backup metadata without exposing filesystem paths."""
+        return self.backups.list_backups()
 
     def _write(
         self,
@@ -128,3 +176,13 @@ class AdminService:
     def save_world(self) -> ActionResult:
         """Flush all loaded world data to disk."""
         return self._write("save_world", {}, self.rcon.save_all_flush)
+
+    def create_backup(self, reason: str = "manual") -> BackupInfo:
+        """Create a consistent compressed backup of configured world directories."""
+
+        def operation() -> BackupInfo:
+            validated_reason = validate_backup_reason(reason)
+            self.rate_limiter.check("create_backup")
+            return self.backups.create_backup(validated_reason)
+
+        return self._write("create_backup", {"reason": reason}, operation)
