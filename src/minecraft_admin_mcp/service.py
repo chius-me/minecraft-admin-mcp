@@ -86,13 +86,16 @@ class AdminService:
             raise MinecraftAdminError(ErrorCode.MESSAGE_INVALID, "limit must be between 1 and 200")
         return limit
 
-    def get_recent_events(self, limit: LogLimit = 50) -> list[LogEvent]:
-        """Return recent recognized events from the one configured Minecraft log."""
-        return self.log_reader.get_recent_events(self._validate_log_limit(limit))
+    def _resolve_log_limit(self, limit: int | None) -> int:
+        return self._validate_log_limit(self.config.logs.default_lines if limit is None else limit)
 
-    def get_recent_errors(self, limit: LogLimit = 50) -> list[LogError]:
+    def get_recent_events(self, limit: LogLimit | None = None) -> list[LogEvent]:
+        """Return recent recognized events from the one configured Minecraft log."""
+        return self.log_reader.get_recent_events(self._resolve_log_limit(limit))
+
+    def get_recent_errors(self, limit: LogLimit | None = None) -> list[LogError]:
         """Return recent errors from the one configured Minecraft log."""
-        return self.log_reader.get_recent_errors(self._validate_log_limit(limit))
+        return self.log_reader.get_recent_errors(self._resolve_log_limit(limit))
 
     def list_backups(self) -> list[BackupInfo]:
         """List instance-local backup metadata without exposing filesystem paths."""

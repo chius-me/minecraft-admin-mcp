@@ -80,6 +80,23 @@ def test_v02_read_tools_and_backup_are_integrated(service: AdminService) -> None
     assert row == (1, None)
 
 
+def test_log_tools_use_configured_default_and_honor_explicit_limit(
+    service: AdminService,
+) -> None:
+    service.config.logs.default_lines = 1
+    service.config.minecraft.log_file.write_text(
+        "[12:00:00] [Server thread/INFO]: Steve joined the game\n"
+        "[12:00:01] [Server thread/INFO]: Alex joined the game\n"
+        "[12:00:02] [Server thread/ERROR]: first failure\n"
+        "[12:00:03] [Server thread/ERROR]: second failure\n",
+        encoding="utf-8",
+    )
+    assert [event.player for event in service.get_recent_events()] == ["Alex"]
+    assert len(service.get_recent_events(2)) == 2
+    assert "second failure" in service.get_recent_errors()[0].message
+    assert len(service.get_recent_errors(2)) == 2
+
+
 @pytest.mark.parametrize("limit", [0, 201])
 def test_log_limit_is_validated(service: AdminService, limit: int) -> None:
     with pytest.raises(MinecraftAdminError, match="limit must be between"):

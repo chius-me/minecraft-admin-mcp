@@ -75,6 +75,38 @@ def test_creates_consistent_archive_and_metadata(
     assert all("/" not in backup.backup_id for backup in manager.list_backups())
 
 
+def test_constructor_does_not_require_or_create_backup_directory(
+    backup_setup: tuple[BackupManager, FakeRcon, Path],
+) -> None:
+    manager, _rcon, directory = backup_setup
+    assert not directory.exists()
+    assert manager.list_backups() == []
+    assert not directory.exists()
+
+
+def test_next_backup_removes_abandoned_artifacts(
+    backup_setup: tuple[BackupManager, FakeRcon, Path],
+) -> None:
+    manager, _rcon, directory = backup_setup
+    existing = manager.create_backup("existing backup")
+    abandoned = [
+        directory / ".backup-abandoned.tar.zst.partial",
+        directory / ".backup-abandoned.tar.zst.json.partial",
+        directory / "backup-20260804T000000Z-orphan.tar.zst",
+        directory / "backup-20260804T000001Z-orphan.tar.zst.json",
+    ]
+    for path in abandoned:
+        path.write_bytes(b"abandoned")
+
+    created = manager.create_backup("cleanup test")
+
+    assert all(not path.exists() for path in abandoned)
+    assert {backup.backup_id for backup in manager.list_backups()} == {
+        existing.backup_id,
+        created.backup_id,
+    }
+
+
 def test_backup_lock_rejects_concurrent_backup(
     backup_setup: tuple[BackupManager, FakeRcon, Path],
 ) -> None:

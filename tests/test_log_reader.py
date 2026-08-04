@@ -57,6 +57,19 @@ def test_parses_errors_and_applies_limit(tmp_path: Path) -> None:
     assert all(error.trusted is False for error in errors)
 
 
+def test_player_chat_cannot_fabricate_server_errors(tmp_path: Path) -> None:
+    log_file = tmp_path / "latest.log"
+    log_file.write_text(
+        "[12:00:00] [Server thread/INFO]: <Steve> fatal crash watchdog exception\n"
+        "[12:00:01] [Server thread/ERROR]: real server failure\n",
+        encoding="utf-8",
+    )
+    errors = LogReader(log_file, LogsConfig()).get_recent_errors(50)
+    assert len(errors) == 1
+    assert errors[0].category == "error"
+    assert "real server failure" in errors[0].message
+
+
 def test_unavailable_log_has_stable_error(tmp_path: Path) -> None:
     reader = LogReader(tmp_path / "missing.log", LogsConfig())
     with pytest.raises(MinecraftAdminError) as caught:
