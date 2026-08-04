@@ -20,3 +20,18 @@ async def test_expected_error_retains_stable_code(app_config: AppConfig) -> None
     server = create_mcp_server(app_config)
     with pytest.raises(MinecraftAdminError, match="PLAYER_NAME_INVALID"):
         await server.call_tool("whitelist_add", {"player": "Steve; stop"})
+
+
+async def test_v02_tools_are_registered_without_path_parameters(app_config: AppConfig) -> None:
+    server = create_mcp_server(app_config)
+    tools = {tool.name: tool for tool in await server.list_tools()}
+    assert {
+        "get_metrics",
+        "get_recent_events",
+        "get_recent_errors",
+        "create_backup",
+        "list_backups",
+    } <= tools.keys()
+    assert "path" not in tools["get_recent_events"].parameters["properties"]
+    assert "path" not in tools["get_recent_errors"].parameters["properties"]
+    assert "path" not in tools["create_backup"].parameters["properties"]

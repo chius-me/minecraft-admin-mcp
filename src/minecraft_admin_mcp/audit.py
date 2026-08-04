@@ -1,3 +1,4 @@
+import ipaddress
 import json
 import re
 import sqlite3
@@ -11,9 +12,21 @@ SENSITIVE_KEYS = frozenset(
     {"authorization", "token", "mcp_token", "password", "rcon_password", "secret"}
 )
 IPV4_PATTERN = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])")
-IPV6_PATTERN = re.compile(
-    r"(?<![0-9A-Fa-f:])(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}(?![0-9A-Fa-f:])"
-)
+IPV6_CANDIDATE_PATTERN = re.compile(r"(?<![0-9A-Fa-f:])[0-9A-Fa-f:]*:[0-9A-Fa-f:]+(?![0-9A-Fa-f:])")
+
+
+def redact_ip_addresses(value: str) -> str:
+    value = IPV4_PATTERN.sub("[REDACTED_IP]", value)
+
+    def redact_ipv6(match: re.Match[str]) -> str:
+        candidate = match.group(0)
+        try:
+            address = ipaddress.ip_address(candidate)
+        except ValueError:
+            return candidate
+        return "[REDACTED_IP]" if address.version == 6 else candidate
+
+    return IPV6_CANDIDATE_PATTERN.sub(redact_ipv6, value)
 
 
 def redact(value: Any, key: str = "") -> Any:
@@ -24,8 +37,7 @@ def redact(value: Any, key: str = "") -> Any:
     if isinstance(value, list | tuple):
         return [redact(item) for item in value]
     if isinstance(value, str):
-        value = IPV4_PATTERN.sub("[REDACTED_IP]", value)
-        return IPV6_PATTERN.sub("[REDACTED_IP]", value)
+        return redact_ip_addresses(value)
     return value
 
 

@@ -22,6 +22,16 @@ http:
   token_env: MC_MCP_TOKEN
 audit:
   database: /var/lib/minecraft-admin-mcp/audit.db
+backup:
+  directory: /backups
+  compression: zstd
+  retention_count: 3
+  timeout_seconds: 300
+logs:
+  default_lines: 50
+  maximum_lines: 200
+  maximum_characters: 20000
+  redact_ip_addresses: true
 permissions:
   get_identity: allow
   get_status: allow
@@ -32,3 +42,8 @@ permissions:
   whitelist_remove: allow
   kick_player: allow
   save_world: allow
+  get_metrics: allow
+  get_recent_events: allow
+  get_recent_errors: allow
+  create_backup: allow
+  list_backups: allow

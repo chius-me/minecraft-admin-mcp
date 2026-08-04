@@ -10,7 +10,7 @@ def test_audit_redacts_secrets(tmp_path: Path) -> None:
     audit.record(
         tool_name="broadcast",
         arguments={
-            "message": "connect to 192.0.2.10 or 2001:db8::1",
+            "message": "[12:34:56] connect to 192.0.2.10 or 2001:db8::1",
             "rcon_password": "never-store-this",
         },
         success=True,
@@ -21,4 +21,5 @@ def test_audit_redacts_secrets(tmp_path: Path) -> None:
     assert "never-store-this" not in arguments
     assert "192.0.2.10" not in arguments
     assert "2001:db8::1" not in arguments
+    assert "12:34:56" in arguments
     assert "[REDACTED]" in arguments

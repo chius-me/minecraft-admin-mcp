@@ -1,10 +1,18 @@
 import os
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from .errors import ErrorCode, MinecraftAdminError
 
@@ -34,6 +42,17 @@ class MinecraftConfig(StrictModel):
     log_file: Path = Path("/minecraft/logs/latest.log")
     world_directories: list[Path] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def validate_fixed_paths(self) -> "MinecraftConfig":
+        root = self.data_directory.resolve()
+        if not self.data_directory.is_absolute():
+            raise ValueError("minecraft data_directory must be absolute")
+        configured_paths = [self.log_file, *self.world_directories]
+        for path in configured_paths:
+            if not path.is_absolute() or not path.resolve().is_relative_to(root):
+                raise ValueError("Minecraft paths must be absolute and inside data_directory")
+        return self
+
 
 class RconConfig(StrictModel):
     host: str
@@ -60,6 +79,33 @@ class AuditConfig(StrictModel):
     database: Path = Path("/var/lib/minecraft-admin-mcp/audit.db")
 
 
+class BackupConfig(StrictModel):
+    directory: Path = Path("/backups")
+    compression: Literal["zstd"] = "zstd"
+    retention_count: int = Field(default=7, ge=1, le=1000)
+    timeout_seconds: float = Field(default=600, gt=0, le=86400)
+
+    @field_validator("directory")
+    @classmethod
+    def validate_directory(cls, value: Path) -> Path:
+        if not value.is_absolute():
+            raise ValueError("backup directory must be absolute")
+        return value
+
+
+class LogsConfig(StrictModel):
+    default_lines: int = Field(default=100, ge=1, le=200)
+    maximum_lines: int = Field(default=500, ge=1, le=5000)
+    maximum_characters: int = Field(default=30000, ge=1000, le=1_000_000)
+    redact_ip_addresses: bool = True
+
+    @model_validator(mode="after")
+    def validate_line_limits(self) -> "LogsConfig":
+        if self.default_lines > self.maximum_lines:
+            raise ValueError("logs default_lines cannot exceed maximum_lines")
+        return self
+
+
 class RateLimitRule(StrictModel):
     calls: int = Field(gt=0)
     period_seconds: float = Field(gt=0)
@@ -69,10 +115,11 @@ DEFAULT_RATE_LIMITS = {
     "broadcast": RateLimitRule(calls=5, period_seconds=60),
     "kick_player": RateLimitRule(calls=10, period_seconds=60),
     "whitelist_write": RateLimitRule(calls=20, period_seconds=60),
+    "create_backup": RateLimitRule(calls=1, period_seconds=300),
 }
 
 
-V01_TOOLS = (
+SUPPORTED_TOOLS = (
     "get_identity",
     "get_status",
     "list_players",
@@ -82,6 +129,11 @@ V01_TOOLS = (
     "whitelist_remove",
     "kick_player",
     "save_world",
+    "get_metrics",
+    "get_recent_events",
+    "get_recent_errors",
+    "create_backup",
+    "list_backups",
 )
 
 
@@ -90,7 +142,9 @@ class AppConfig(StrictModel):
     minecraft: MinecraftConfig
     rcon: RconConfig
     http: HttpConfig = Field(default_factory=HttpConfig)
+    backup: BackupConfig = Field(default_factory=BackupConfig)
     audit: AuditConfig = Field(default_factory=AuditConfig)
+    logs: LogsConfig = Field(default_factory=LogsConfig)
     permissions: dict[str, PermissionState]
     rate_limits: dict[str, RateLimitRule] = Field(default_factory=lambda: dict(DEFAULT_RATE_LIMITS))
     rcon_password: SecretStr
@@ -99,7 +153,7 @@ class AppConfig(StrictModel):
     @field_validator("permissions")
     @classmethod
     def validate_permissions(cls, value: dict[str, PermissionState]) -> dict[str, PermissionState]:
-        unknown = set(value) - set(V01_TOOLS)
+        unknown = set(value) - set(SUPPORTED_TOOLS)
         if unknown:
             raise ValueError(f"unsupported permissions: {', '.join(sorted(unknown))}")
         return value

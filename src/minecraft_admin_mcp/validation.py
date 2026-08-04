@@ -31,3 +31,7 @@ def validate_broadcast(value: str) -> str:
 
 def validate_kick_reason(value: str) -> str:
     return validate_text(value, maximum=100, field="reason")
+
+
+def validate_backup_reason(value: str) -> str:
+    return validate_text(value, maximum=100, field="reason")
