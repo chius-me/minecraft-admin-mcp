@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "mc_survival": {
+      "type": "http",
+      "url": "https://mc-survival.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${MC_SURVIVAL_MCP_TOKEN}"
+      }
+    }
+  }
+}
+

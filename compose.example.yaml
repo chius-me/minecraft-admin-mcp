@@ -1,0 +1,5 @@
+# Copy this file and change the project name, host port, config file and both secrets
+# for every additional isolated Minecraft server stack.
+include:
+  - compose.yaml
+

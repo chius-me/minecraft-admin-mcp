@@ -1,0 +1,35 @@
+server:
+  id: survival
+  name: Main Survival Server
+  aliases: [survival, main]
+  environment: production
+  risk_level: high
+minecraft:
+  version: "1.21.1"
+  loader: fabric
+  data_directory: /minecraft
+  log_file: /minecraft/logs/latest.log
+  world_directories: [/minecraft/world, /minecraft/world_nether, /minecraft/world_the_end]
+rcon:
+  host: minecraft
+  port: 25575
+  password_env: MC_RCON_PASSWORD
+  timeout_seconds: 10
+http:
+  host: 0.0.0.0
+  port: 8101
+  path: /mcp
+  token_env: MC_MCP_TOKEN
+audit:
+  database: /var/lib/minecraft-admin-mcp/audit.db
+permissions:
+  get_identity: allow
+  get_status: allow
+  list_players: allow
+  get_whitelist: allow
+  broadcast: allow
+  whitelist_add: allow
+  whitelist_remove: allow
+  kick_player: allow
+  save_world: allow
+
