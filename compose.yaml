@@ -1,0 +1,70 @@
+name: minecraft-admin
+
+services:
+  minecraft:
+    image: itzg/minecraft-server:latest
+    restart: unless-stopped
+    environment:
+      EULA: "TRUE"
+      TYPE: "${MC_TYPE:-FABRIC}"
+      VERSION: "${MC_VERSION:-1.21.1}"
+      MEMORY: "${MC_MEMORY:-2G}"
+      ENABLE_RCON: "true"
+      RCON_PASSWORD: "${MC_RCON_PASSWORD:?set MC_RCON_PASSWORD in .env}"
+      RCON_PORT: "25575"
+      ENABLE_WHITELIST: "true"
+    ports:
+      - "${MC_GAME_PORT:-25565}:25565"
+    volumes:
+      - minecraft_data:/data
+    networks:
+      - minecraft_internal
+    healthcheck:
+      test: ["CMD", "mc-health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  minecraft-admin-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: minecraft-admin-mcp:local
+    restart: unless-stopped
+    depends_on:
+      minecraft:
+        condition: service_healthy
+    environment:
+      MC_ADMIN_CONFIG: /app/config/config.yaml
+      MC_RCON_PASSWORD: "${MC_RCON_PASSWORD:?set MC_RCON_PASSWORD in .env}"
+      MC_MCP_TOKEN: "${MC_MCP_TOKEN:?set MC_MCP_TOKEN in .env}"
+    volumes:
+      - ${MC_ADMIN_CONFIG_FILE:-./config/survival.example.yaml}:/app/config/config.yaml:ro
+      - minecraft_data:/minecraft:ro
+      - minecraft_mcp_data:/var/lib/minecraft-admin-mcp
+    ports:
+      - "${MC_MCP_PORT:-8101}:8101"
+    networks:
+      - minecraft_internal
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "python", "-m", "minecraft_admin_mcp.healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  minecraft_internal:
+    driver: bridge
+
+volumes:
+  minecraft_data:
+  minecraft_mcp_data:

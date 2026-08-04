@@ -1,0 +1,8 @@
+# The exact key names can vary by Hermes release. Configure a remote Streamable HTTP MCP:
+mcp_servers:
+  mc_survival:
+    transport: streamable_http
+    url: https://mc-survival.example.com/mcp
+    headers:
+      Authorization: Bearer ${MC_SURVIVAL_MCP_TOKEN}
+
