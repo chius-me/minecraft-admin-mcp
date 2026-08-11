@@ -30,6 +30,11 @@ http:
 audit:
   database: /var/lib/minecraft-admin-mcp/audit.db
 
+# V0.3 approval queue. Admin token is read from admin_token_env (never put secrets in YAML).
+approval:
+  default_ttl_seconds: 3600
+  admin_token_env: MC_ADMIN_TOKEN
+
 backup:
   directory: /backups
   compression: zstd
@@ -57,9 +62,17 @@ permissions:
   get_recent_errors: allow
   create_backup: allow
   list_backups: allow
+  # High-risk (V0.3): approval registers request_* only; allow is for isolated test servers.
+  restart: disabled
+  ban_player: disabled
+  restore_backup: disabled
 
 rate_limits:
   broadcast: { calls: 5, period_seconds: 60 }
   kick_player: { calls: 10, period_seconds: 60 }
   whitelist_write: { calls: 20, period_seconds: 60 }
   create_backup: { calls: 1, period_seconds: 300 }
+  ban_player: { calls: 5, period_seconds: 60 }
+  restart: { calls: 1, period_seconds: 300 }
+  restore_backup: { calls: 1, period_seconds: 600 }
+  request_high_risk: { calls: 10, period_seconds: 60 }

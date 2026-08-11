@@ -22,6 +22,9 @@ http:
   token_env: MC_MCP_TOKEN
 audit:
   database: /var/lib/minecraft-admin-mcp/audit.db
+approval:
+  default_ttl_seconds: 3600
+  admin_token_env: MC_ADMIN_TOKEN
 backup:
   directory: /backups
   compression: zstd
@@ -47,3 +50,7 @@ permissions:
   get_recent_errors: allow
   create_backup: allow
   list_backups: allow
+  # Production: queue only; approve with MC_ADMIN_TOKEN outside the Agent.
+  restart: approval
+  ban_player: approval
+  restore_backup: approval

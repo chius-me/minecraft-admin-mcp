@@ -35,3 +35,22 @@ def validate_kick_reason(value: str) -> str:
 
 def validate_backup_reason(value: str) -> str:
     return validate_text(value, maximum=100, field="reason")
+
+
+def validate_ban_reason(value: str) -> str:
+    return validate_text(value, maximum=100, field="reason")
+
+
+BACKUP_ID = re.compile(r"^[a-f0-9]{32}$")
+
+
+def validate_backup_id(value: str) -> str:
+    """Accept only opaque hex backup ids produced by this instance (no paths)."""
+    if not BACKUP_ID.fullmatch(value):
+        raise MinecraftAdminError(
+            ErrorCode.BACKUP_NOT_FOUND,
+            "backup_id must be a 32-character hexadecimal identifier",
+        )
+    if any(marker in value for marker in ("/", "\\", "..")):
+        raise MinecraftAdminError(ErrorCode.BACKUP_NOT_FOUND, "invalid backup_id")
+    return value

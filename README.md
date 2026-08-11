@@ -4,7 +4,8 @@
 small set of administration tools for exactly one Minecraft Java Edition server. It uses standard
 Streamable HTTP and has no dependency on a particular agent or client.
 
-The current development branch implements the V0.2 scope from `PROJECT_SPEC.md`.
+The current release implements the **V0.3** scope from `PROJECT_SPEC.md` (logs, metrics, backups,
+plus an approval queue for high-risk operations).
 
 ## Security model
 
@@ -13,8 +14,11 @@ This service is intentionally not a general remote administration interface:
 - One MCP process is configured for one Minecraft server; tools never accept a `server_id`.
 - It exposes no shell, code execution, arbitrary RCON, Docker API, or arbitrary filesystem tools.
 - RCON operations are fixed adapter methods and all player names and text are validated.
-- Disabled or approval-gated operations are absent from the V0.1 tool list. V0.1 does not execute
-  approval-gated high-risk operations.
+- High-risk operations (`restart`, `ban_player`, `restore_backup`) default to `disabled` or
+  `approval`. When set to `approval`, the Agent only receives `request_*` tools that enqueue work;
+  **approval is never an MCP tool** and cannot use the Agent MCP bearer token.
+- Operators approve or reject with a separate `MC_ADMIN_TOKEN` via `minecraft-admin-mcp-approve`
+  (or the in-process `ApprovalAdmin` API). The MCP agent token is always rejected for decisions.
 - Every write operation, including rejected attempts, is recorded in the instance-local SQLite
   audit database. Known secret fields are redacted.
 - Each instance has its own bearer token and RCON password, read only from environment variables.
@@ -44,9 +48,53 @@ trusted private network in production.
 | `get_recent_errors` | Parse recent failures from the configured fixed log | allow |
 | `create_backup` | Create a consistent Zstandard world backup | allow |
 | `list_backups` | List backup ID, time, size, SHA-256, and reason | allow |
+| `request_ban_player` | Queue a ban for external approval | approval |
+| `request_restart` | Queue a controlled restart for external approval | approval |
+| `request_restore_backup` | Queue a restore by backup id for external approval | approval |
 
-There is deliberately no raw command tool. Restart, ban, restore, OP, and arbitrary file access
-remain outside V0.2.
+When a high-risk permission is `allow` (typical only on isolated test servers), the direct tools
+`ban_player`, `restart`, and `restore_backup` are registered instead of the `request_*` tools.
+
+There is deliberately no raw command tool and no OP grant tool. The Agent tool list never includes
+approve/reject actions.
+
+## High-risk approvals (V0.3)
+
+```text
+Agent (MCP token)          Operator (MC_ADMIN_TOKEN)
+        │                              │
+        │ request_ban_player           │
+        ▼                              │
+   SQLite approval queue ─────────────►│ minecraft-admin-mcp-approve approve <id>
+        │                              │
+        │  (no execution yet)          ▼
+        │                     fixed RCON ban / stop / restore by id
+```
+
+1. Set high-risk keys to `approval` (production) or leave them `disabled`.
+2. Set a second secret: `MC_ADMIN_TOKEN` (≥32 characters, different from `MC_MCP_TOKEN`).
+3. Agent calls `request_*` and receives a `request_id` with expiry (default 1 hour).
+4. Operator runs:
+
+```bash
+export MC_ADMIN_TOKEN='...'
+uv run minecraft-admin-mcp-approve list
+uv run minecraft-admin-mcp-approve approve <request_id> --note "ok"
+# or: uv run minecraft-admin-mcp-approve reject <request_id>
+```
+
+Expired requests cannot be executed. A request is executed at most once after approval.
+
+**Restart path:** fixed RCON `stop` only. With Compose `restart: unless-stopped`, the Minecraft
+container may come back without any Docker socket access from MCP.
+
+**Restore path:** only an existing instance `backup_id` (32 hex chars). SHA-256 is verified before
+extract. Callers cannot supply filesystem paths. The standard Compose stack mounts Minecraft data
+read-only into MCP; restore execution requires a writable data directory (for example a lab mount).
+Production operators may still restore on the host after approving the verified request.
+
+**Locks:** backups and maintenance (restart/restore) are mutually exclusive and return stable error
+codes (`BACKUP_IN_PROGRESS`, `MAINTENANCE_IN_PROGRESS`).
 
 ## Docker Compose deployment
 
@@ -54,7 +102,7 @@ Requirements: Docker Engine with Compose v2 and enough memory for Minecraft.
 
 ```bash
 cp .env.example .env
-# Replace both values in .env with independent random secrets.
+# Replace values in .env with independent random secrets (include MC_ADMIN_TOKEN for approvals).
 docker compose config
 docker compose up -d --build
 docker compose ps
@@ -68,7 +116,7 @@ The default stack mounts:
 
 - `minecraft_data` at `/data` in Minecraft and read-only at `/minecraft` in MCP;
 - `minecraft_backups` at writable `/backups` only in MCP;
-- `minecraft_mcp_data` at `/var/lib/minecraft-admin-mcp` for the SQLite audit database;
+- `minecraft_mcp_data` at `/var/lib/minecraft-admin-mcp` for the SQLite audit/approval databases;
 - `config/survival.example.yaml` read-only as the MCP configuration.
 
 Use a copied configuration file for a real deployment instead of editing the example. Host ports can
@@ -92,7 +140,7 @@ stop or address another project's services or volumes.
 
 ## Configuration
 
-Set `MC_ADMIN_CONFIG` to a YAML file. `config/config.example.yaml` documents all V0.1 fields.
+Set `MC_ADMIN_CONFIG` to a YAML file. `config/config.example.yaml` documents supported fields.
 Secrets are references, never YAML values:
 
 ```yaml
@@ -102,15 +150,18 @@ rcon:
 http:
   path: /mcp
   token_env: MC_MCP_TOKEN
+approval:
+  default_ttl_seconds: 3600
+  admin_token_env: MC_ADMIN_TOKEN
 ```
 
 Permission values are `allow`, `approval`, or `disabled`:
 
-- `allow`: register the directly executable tool;
-- `approval`: do not register a direct tool in V0.1 (approval queues arrive in V0.3);
+- `allow`: register the directly executable tool (for high-risk ops, prefer only on test servers);
+- `approval`: register only `request_*` for high-risk ops; no direct execute tool; no agent self-approve;
 - `disabled`: do not register the tool.
 
-The bearer token must be at least 32 characters. Send it only in the header:
+The bearer token and admin token must each be at least 32 characters. Send the MCP token only in:
 
 ```http
 Authorization: Bearer <instance-specific-token>
@@ -126,13 +177,12 @@ control characters are sanitized, and IP addresses are redacted by default.
 
 The standard Compose deployment does not share the Minecraft PID namespace with MCP. CPU and memory
 therefore return `null` instead of reporting the wrong process. Data-volume free space is reported;
-TPS and MSPT remain `null` in V0.2.
+TPS and MSPT remain `null` in V0.3.
 
 Backups cover only configured `minecraft.world_directories`. Creation acquires an instance-wide
 lock, disables saving, flushes the worlds, writes a `.tar.zst` archive, calculates SHA-256, writes
 metadata, restores saving in a `finally` path, and enforces `retention_count`. Tool results never
-expose a filesystem path. V0.2 intentionally provides no restore operation; copy and verify backups
-through a trusted operator-controlled recovery process.
+expose a filesystem path.
 
 ## MCP clients
 
@@ -156,6 +206,7 @@ cp config/survival.example.yaml config/config.yaml
 export MC_ADMIN_CONFIG=config/config.yaml
 export MC_RCON_PASSWORD='development-rcon-secret'
 export MC_MCP_TOKEN='development-token-at-least-32-characters'
+export MC_ADMIN_TOKEN='development-admin-token-at-least-32-ch'
 uv run minecraft-admin-mcp
 ```
 
@@ -171,7 +222,8 @@ uv run pytest
 ## Audit and errors
 
 Writes are stored in `audit_events` with timestamp, server ID, tool, redacted arguments, outcome,
-stable error code, and duration. The service never intentionally stores authorization headers,
-tokens, or RCON passwords and masks internal exception details at the MCP boundary.
+stable error code, and duration. Approval decisions are also audited under `admin_approve` /
+`admin_reject`. The service never intentionally stores authorization headers, tokens, or RCON
+passwords and masks internal exception details at the MCP boundary.
 
 See `SECURITY.md` for reporting and production guidance and `CONTRIBUTING.md` for development rules.

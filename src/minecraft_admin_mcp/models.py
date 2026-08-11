@@ -67,3 +67,15 @@ class BackupInfo(BaseModel):
     size_bytes: int = Field(ge=0)
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     reason: str
+
+
+class ApprovalRequestInfo(BaseModel):
+    request_id: str
+    operation: str
+    status: str
+    created_at: datetime
+    expires_at: datetime
+    arguments: dict[str, object] = Field(default_factory=dict)
+    decision_note: str | None = None
+    result_message: str | None = None
+    error_code: str | None = None

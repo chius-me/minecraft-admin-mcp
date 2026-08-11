@@ -23,6 +23,8 @@ def test_fixed_commands_and_parsing() -> None:
     adapter.save_all_flush()
     adapter.save_off()
     adapter.save_on()
+    adapter.ban_player("Steve", "grief")
+    adapter.stop_server()
     assert calls == [
         ("list",),
         ("whitelist", "list"),
@@ -33,6 +35,8 @@ def test_fixed_commands_and_parsing() -> None:
         ("save-all", "flush"),
         ("save-off",),
         ("save-on",),
+        ("ban", "Steve", "grief"),
+        ("stop",),
     ]
     assert not hasattr(adapter, "execute")
     assert not hasattr(adapter, "run")
