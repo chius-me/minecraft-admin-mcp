@@ -122,6 +122,10 @@ class BackupManager:
         return digest.hexdigest()
 
     def create_backup(self, reason: str) -> BackupInfo:
+        if self._locks.maintenance_lock.locked():
+            raise MinecraftAdminError(
+                ErrorCode.MAINTENANCE_IN_PROGRESS, "maintenance is in progress"
+            )
         if not self._locks.backup_lock.acquire(blocking=False):
             raise MinecraftAdminError(ErrorCode.BACKUP_IN_PROGRESS, "another backup is in progress")
         deadline = time.monotonic() + self._config.timeout_seconds
@@ -201,3 +205,133 @@ class BackupManager:
 
     def list_backups(self) -> list[BackupInfo]:
         return [record[0] for record in self._records()]
+
+    def _find_record(self, backup_id: str) -> tuple[BackupInfo, Path, Path]:
+        for info, archive_path, metadata_path in self._records():
+            if info.backup_id == backup_id:
+                return info, archive_path, metadata_path
+        raise MinecraftAdminError(ErrorCode.BACKUP_NOT_FOUND, "backup not found")
+
+    def get_backup(self, backup_id: str) -> BackupInfo:
+        return self._find_record(backup_id)[0]
+
+    def verify_backup_integrity(self, backup_id: str) -> BackupInfo:
+        info, archive_path, _metadata_path = self._find_record(backup_id)
+        deadline = time.monotonic() + self._config.timeout_seconds
+        digest = self._sha256(archive_path, deadline)
+        if digest != info.sha256:
+            raise MinecraftAdminError(
+                ErrorCode.BACKUP_INTEGRITY_FAILED, "backup archive hash mismatch"
+            )
+        return info
+
+    def restore_backup(self, backup_id: str) -> ActionResult:
+        """Restore configured world directories from a verified backup id only.
+
+        Never accepts filesystem paths from callers. Requires a writable data directory
+        (standard Compose mounts Minecraft data read-only into MCP; host restore may
+        still be required in production). Does not use Docker socket/API.
+        """
+        if not self._locks.maintenance_lock.acquire(blocking=False):
+            raise MinecraftAdminError(
+                ErrorCode.MAINTENANCE_IN_PROGRESS, "maintenance is in progress"
+            )
+        try:
+            if self._locks.backup_lock.locked():
+                raise MinecraftAdminError(
+                    ErrorCode.BACKUP_IN_PROGRESS, "another backup is in progress"
+                )
+            info, archive_path, _metadata_path = self._find_record(backup_id)
+            deadline = time.monotonic() + self._config.timeout_seconds
+            digest = self._sha256(archive_path, deadline)
+            if digest != info.sha256:
+                raise MinecraftAdminError(
+                    ErrorCode.BACKUP_INTEGRITY_FAILED, "backup archive hash mismatch"
+                )
+            data_root = self._minecraft.data_directory.resolve()
+            if not data_root.is_dir() or not os.access(data_root, os.W_OK):
+                raise MinecraftAdminError(
+                    ErrorCode.RESTORE_FAILED,
+                    "minecraft data directory is not writable for restore",
+                )
+            allowed_arcnames = {
+                str(path.resolve().relative_to(data_root))
+                for path in self._minecraft.world_directories
+            }
+            saving_disabled = False
+            try:
+                if not self._rcon.save_off().success:
+                    raise MinecraftAdminError(
+                        ErrorCode.RESTORE_FAILED, "Minecraft rejected save-off"
+                    )
+                saving_disabled = True
+                self._extract_worlds(archive_path, data_root, allowed_arcnames, deadline)
+            finally:
+                if saving_disabled:
+                    if not self._rcon.save_on().success:
+                        raise MinecraftAdminError(
+                            ErrorCode.RESTORE_FAILED, "Minecraft rejected save-on"
+                        )
+            return ActionResult(success=True, message=f"restored backup {backup_id}")
+        except MinecraftAdminError:
+            raise
+        except Exception:
+            raise MinecraftAdminError(ErrorCode.RESTORE_FAILED, "restore failed") from None
+        finally:
+            self._locks.maintenance_lock.release()
+
+    def _extract_worlds(
+        self,
+        archive_path: Path,
+        data_root: Path,
+        allowed_arcnames: set[str],
+        deadline: float,
+    ) -> None:
+        try:
+            with archive_path.open("rb") as raw_input:
+                decompressor = zstandard.ZstdDecompressor()
+                with decompressor.stream_reader(raw_input) as compressed:
+                    with tarfile.open(fileobj=compressed, mode="r|") as archive:
+                        for member in archive:
+                            self._check_deadline(deadline)
+                            member_path = Path(member.name)
+                            if member_path.is_absolute() or ".." in member_path.parts:
+                                raise MinecraftAdminError(
+                                    ErrorCode.RESTORE_FAILED, "unsafe archive member"
+                                )
+                            top = member_path.parts[0] if member_path.parts else ""
+                            if (
+                                top not in allowed_arcnames
+                                and str(member_path) not in allowed_arcnames
+                            ):
+                                # Allow nested paths under configured world directory names.
+                                if not any(
+                                    str(member_path) == name
+                                    or str(member_path).startswith(f"{name}/")
+                                    for name in allowed_arcnames
+                                ):
+                                    continue
+                            destination = (data_root / member_path).resolve()
+                            if not destination.is_relative_to(data_root):
+                                raise MinecraftAdminError(
+                                    ErrorCode.RESTORE_FAILED, "unsafe extract path"
+                                )
+                            if member.isdir():
+                                destination.mkdir(parents=True, exist_ok=True)
+                                continue
+                            if not member.isfile():
+                                continue
+                            destination.parent.mkdir(parents=True, exist_ok=True)
+                            extracted = archive.extractfile(member)
+                            if extracted is None:
+                                continue
+                            with extracted, destination.open("wb") as output:
+                                while chunk := extracted.read(1024 * 1024):
+                                    self._check_deadline(deadline)
+                                    output.write(chunk)
+        except MinecraftAdminError:
+            raise
+        except OSError:
+            raise MinecraftAdminError(
+                ErrorCode.RESTORE_FAILED, "failed to extract backup archive"
+            ) from None

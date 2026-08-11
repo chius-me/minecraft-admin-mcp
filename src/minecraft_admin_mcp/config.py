@@ -116,10 +116,14 @@ DEFAULT_RATE_LIMITS = {
     "kick_player": RateLimitRule(calls=10, period_seconds=60),
     "whitelist_write": RateLimitRule(calls=20, period_seconds=60),
     "create_backup": RateLimitRule(calls=1, period_seconds=300),
+    "ban_player": RateLimitRule(calls=5, period_seconds=60),
+    "restart": RateLimitRule(calls=1, period_seconds=300),
+    "restore_backup": RateLimitRule(calls=1, period_seconds=600),
+    "request_high_risk": RateLimitRule(calls=10, period_seconds=60),
 }
 
-
-SUPPORTED_TOOLS = (
+# Permission keys accepted in YAML (includes high-risk ops introduced in V0.3).
+SUPPORTED_PERMISSIONS = (
     "get_identity",
     "get_status",
     "list_players",
@@ -134,7 +138,21 @@ SUPPORTED_TOOLS = (
     "get_recent_errors",
     "create_backup",
     "list_backups",
+    "restart",
+    "ban_player",
+    "restore_backup",
 )
+
+# Backward-compatible alias used by older imports/tests.
+SUPPORTED_TOOLS = SUPPORTED_PERMISSIONS
+
+
+class ApprovalConfig(StrictModel):
+    """V0.3 approval queue settings. Admin token is never stored in YAML."""
+
+    database: Path | None = None
+    default_ttl_seconds: float = Field(default=3600, gt=0, le=86400)
+    admin_token_env: str = "MC_ADMIN_TOKEN"  # noqa: S105 - environment variable name
 
 
 class AppConfig(StrictModel):
@@ -145,18 +163,25 @@ class AppConfig(StrictModel):
     backup: BackupConfig = Field(default_factory=BackupConfig)
     audit: AuditConfig = Field(default_factory=AuditConfig)
     logs: LogsConfig = Field(default_factory=LogsConfig)
+    approval: ApprovalConfig = Field(default_factory=ApprovalConfig)
     permissions: dict[str, PermissionState]
     rate_limits: dict[str, RateLimitRule] = Field(default_factory=lambda: dict(DEFAULT_RATE_LIMITS))
     rcon_password: SecretStr
     mcp_token: SecretStr
+    admin_token: SecretStr | None = None
 
     @field_validator("permissions")
     @classmethod
     def validate_permissions(cls, value: dict[str, PermissionState]) -> dict[str, PermissionState]:
-        unknown = set(value) - set(SUPPORTED_TOOLS)
+        unknown = set(value) - set(SUPPORTED_PERMISSIONS)
         if unknown:
             raise ValueError(f"unsupported permissions: {', '.join(sorted(unknown))}")
         return value
+
+    def approval_database(self) -> Path:
+        if self.approval.database is not None:
+            return self.approval.database
+        return self.audit.database.parent / "approvals.db"
 
 
 def load_config(path: Path | str | None = None) -> AppConfig:
@@ -170,16 +195,29 @@ def load_config(path: Path | str | None = None) -> AppConfig:
             raise ValueError("configuration root must be a mapping")
         rcon_env = raw.get("rcon", {}).get("password_env", "MC_RCON_PASSWORD")
         token_env = raw.get("http", {}).get("token_env", "MC_MCP_TOKEN")
+        approval_section = raw.get("approval")
+        approval_raw: dict[str, Any] = (
+            approval_section if isinstance(approval_section, dict) else {}
+        )
+        admin_token_env = str(approval_raw.get("admin_token_env", "MC_ADMIN_TOKEN"))
         rcon_password = os.getenv(rcon_env)
         mcp_token = os.getenv(token_env)
+        admin_token = os.getenv(admin_token_env)
         if not rcon_password:
             raise ValueError(f"required secret environment variable {rcon_env} is not set")
         if not mcp_token:
             raise ValueError(f"required secret environment variable {token_env} is not set")
         if len(mcp_token) < 32:
             raise ValueError("MCP bearer token must contain at least 32 characters")
+        if admin_token is not None and len(admin_token) < 32:
+            raise ValueError("admin approval token must contain at least 32 characters")
         return AppConfig.model_validate(
-            {**raw, "rcon_password": rcon_password, "mcp_token": mcp_token}
+            {
+                **raw,
+                "rcon_password": rcon_password,
+                "mcp_token": mcp_token,
+                "admin_token": admin_token,
+            }
         )
     except (OSError, ValueError, ValidationError, yaml.YAMLError) as exc:
         raise MinecraftAdminError(ErrorCode.CONFIG_INVALID, str(exc)) from None

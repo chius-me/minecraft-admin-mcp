@@ -135,3 +135,13 @@ class RconAdapter:
     def save_on(self) -> ActionResult:
         response = self._execute("save-on")
         return self._action_result(response, "automatic saving enabled")
+
+    def ban_player(self, player: str, reason: str) -> ActionResult:
+        """Ban one player via the fixed ban command only (no raw RCON)."""
+        response = self._execute("ban", player, reason)
+        return self._action_result(response, f"{player} banned")
+
+    def stop_server(self) -> ActionResult:
+        """Issue the fixed stop command. Compose restart policy may bring the process back."""
+        response = self._execute("stop")
+        return self._action_result(response, "stop command sent")
