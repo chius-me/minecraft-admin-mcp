@@ -5,12 +5,12 @@
 A lightweight, self-hosted MCP server providing scoped administration tools for Minecraft Java Edition.
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Docker](https://img.shields.io/badge/Docker-GHCR-2496ED?logo=docker&logoColor=white)](https://github.com/chius-me/minecraft-admin-mcp/pkgs/container/minecraft-admin-mcp)
-[![CI](https://github.com/chius-me/minecraft-admin-mcp/actions/workflows/docker.yml/badge.svg)](https://github.com/chius-me/minecraft-admin-mcp/actions)
+[![Docker](https://img.shields.io/badge/Docker-GHCR-2496ED?logo=docker&logoColor=white)](https://github.com/chius-n/minecraft-admin-mcp/pkgs/container/minecraft-admin-mcp)
+[![CI](https://github.com/chius-n/minecraft-admin-mcp/actions/workflows/docker.yml/badge.svg)](https://github.com/chius-n/minecraft-admin-mcp/actions)
 ![Python](https://img.shields.io/badge/Python-3.12+-3776ab?logo=python&logoColor=white)
 ![MCP](https://img.shields.io/badge/Model%20Context%20Protocol-Streamable%20HTTP-brightgreen)
 
-[Issues](https://github.com/chius-me/minecraft-admin-mcp/issues) · [Security Policy](SECURITY.md) · [Docker Packages](https://github.com/chius-me/minecraft-admin-mcp/pkgs/container/minecraft-admin-mcp)
+[Issues](https://github.com/chius-n/minecraft-admin-mcp/issues) · [Security Policy](SECURITY.md) · [Docker Packages](https://github.com/chius-n/minecraft-admin-mcp/pkgs/container/minecraft-admin-mcp)
 
 </div>
 
